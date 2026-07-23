@@ -1,3 +1,4 @@
+
 const mysql = require('mysql2/promise');
 
 const required = ['DB_HOST', 'DB_NAME', 'DB_USER', 'JWT_SECRET'];
@@ -20,11 +21,14 @@ const pool = mysql.createPool({
 });
 
 async function verifyDatabaseConnection() {
-  const connection = await pool.getConnection();
   try {
+    const connection = await pool.getConnection();
     await connection.ping();
-  } finally {
     connection.release();
+    console.log('Database connection verified successfully.');
+  } catch (error) {
+    console.error('Failed to connect to the database:', error.message);
+    throw error;
   }
 }
 
