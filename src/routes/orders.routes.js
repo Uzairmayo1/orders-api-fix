@@ -34,22 +34,26 @@ function validateOrderInput(productName, quantity, status, partial = false) {
 
 router.use(authenticate);
 
+// CREATE ORDER (Security Fix: Lock userId to authenticated user)
 router.post('/', async (req, res, next) => {
   try {
-    const { productName, quantity, status = 'pending', userId = req.user.id } = req.body;
+    const { productName, quantity, status = 'pending' } = req.body;
+    const userId = req.user.id; // Force using logged-in user ID
+    
     validateOrderInput(productName, quantity, status);
 
     const [result] = await pool.execute(
       'INSERT INTO orders (user_id, product_name, quantity, status) VALUES (?, ?, ?, ?)',
       [userId, productName.trim(), quantity, status]
     );
-    const [orders] = await pool.execute('SELECT * FROM orders WHERE id = ?', [result.insertId]);
+    const [orders] = await pool.execute('SELECT * FROM orders WHERE id = ? AND user_id = ?', [result.insertId, userId]);
     return res.status(201).json({ order: orders[0] });
   } catch (error) {
     return next(error);
   }
 });
 
+// GET ALL ORDERS FOR USER
 router.get('/', async (req, res, next) => {
   try {
     const [orders] = await pool.execute(
@@ -62,10 +66,11 @@ router.get('/', async (req, res, next) => {
   }
 });
 
+// GET SINGLE ORDER (Authorization Fix: Restrict to owner)
 router.get('/:id', async (req, res, next) => {
   try {
     const id = parseOrderId(req.params.id);
-    const [orders] = await pool.execute('SELECT * FROM orders WHERE id = ?', [id]);
+    const [orders] = await pool.execute('SELECT * FROM orders WHERE id = ? AND user_id = ?', [id, req.user.id]);
     if (!orders[0]) {
       throw new AppError(404, 'Order was not found');
     }
@@ -75,6 +80,7 @@ router.get('/:id', async (req, res, next) => {
   }
 });
 
+// UPDATE ORDER (Authorization Fix: Restrict update to owner)
 router.patch('/:id', async (req, res, next) => {
   try {
     const id = parseOrderId(req.params.id);
@@ -89,25 +95,31 @@ router.patch('/:id', async (req, res, next) => {
     if (productName !== undefined) { updates.push('product_name = ?'); values.push(productName.trim()); }
     if (quantity !== undefined) { updates.push('quantity = ?'); values.push(quantity); }
     if (status !== undefined) { updates.push('status = ?'); values.push(status); }
-    values.push(id);
+    
+    values.push(id, req.user.id);
 
-    const [result] = await pool.execute(`UPDATE orders SET ${updates.join(', ')} WHERE id = ?`, values);
+    const [result] = await pool.execute(
+      `UPDATE orders SET ${updates.join(', ')} WHERE id = ? AND user_id = ?`, 
+      values
+    );
+    
     if (result.affectedRows === 0) {
-      throw new AppError(404, 'Order was not found');
+      throw new AppError(404, 'Order was not found or unauthorized');
     }
-    const [orders] = await pool.execute('SELECT * FROM orders WHERE id = ?', [id]);
+    const [orders] = await pool.execute('SELECT * FROM orders WHERE id = ? AND user_id = ?', [id, req.user.id]);
     return res.json({ order: orders[0] });
   } catch (error) {
     return next(error);
   }
 });
 
+// DELETE ORDER (Authorization Fix: Restrict deletion to owner)
 router.delete('/:id', async (req, res, next) => {
   try {
     const id = parseOrderId(req.params.id);
-    const [result] = await pool.execute('DELETE FROM orders WHERE id = ?', [id]);
+    const [result] = await pool.execute('DELETE FROM orders WHERE id = ? AND user_id = ?', [id, req.user.id]);
     if (result.affectedRows === 0) {
-      throw new AppError(404, 'Order was not found');
+      throw new AppError(404, 'Order was not found or unauthorized');
     }
     return res.status(204).send();
   } catch (error) {
