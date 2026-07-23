@@ -17,7 +17,8 @@ function validateCredentials(name, email, password, needsName) {
 function createToken(user) {
   return jwt.sign(
     { sub: user.id, email: user.email },
-    process.env.JWT_SECRET
+    process.env.JWT_SECRET,
+    { expiresIn: process.env.JWT_EXPIRES_IN || '24h' }
   );
 }
 
